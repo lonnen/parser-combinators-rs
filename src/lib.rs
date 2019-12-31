@@ -116,12 +116,12 @@ struct Element {
 /// chars. It seems like we'll need this in a few places, which usually means
 /// it's time for an abstraction.
 
-fn the_letter_a(input: &str) -> Result<(&str, ()), &str> {
-    match input.chars().next() {
-        Some('a') => Ok((&input['a'.len_utf8()..], ())),
-        _ => Err(input),
-    }
-}
+// fn the_letter_a(input: &str) -> Result<(&str, ()), &str> {
+//     match input.chars().next() {
+//         Some('a') => Ok((&input['a'.len_utf8()..], ())),
+//         _ => Err(input),
+//     }
+// }
 
 /// We'll need to create functions like the one above to match not just single
 /// chars but arbitrary static strings.
@@ -137,12 +137,12 @@ fn the_letter_a(input: &str) -> Result<(&str, ()), &str> {
 /// the body is similar but where we matched against a literal before we match
 /// against a variable now.
 
-fn match_literal(expected: &'static str) -> impl Fn(&str) -> Result<(&str, ()), &str> {
-    move |input| match input.starts_with(expected) {
-        true => Ok((&input[expected.len()..], ())),
-        _ => Err(input),
-    }
-}
+// fn match_literal(expected: &'static str) -> impl Fn(&str) -> Result<(&str, ()), &str> {
+//     move |input| match input.starts_with(expected) {
+//         true => Ok((&input[expected.len()..], ())),
+//         _ => Err(input),
+//     }
+// }
 
 /// Now that we can match literals we need to match element names. We don't
 /// know this ahead of time. We could do it with a regex but pulling in a
@@ -170,26 +170,26 @@ fn match_literal(expected: &'static str) -> impl Fn(&str) -> Result<(&str, ()), 
 /// Of course, at any time during this we could run out of chars and hit the
 /// end of the input, which is also an Error.
 
-fn identifier(input: &str) -> Result<(&str, String), &str> {
-    let mut matched = String::new();
-    let mut chars = input.chars();
+// fn identifier(input: &str) -> Result<(&str, String), &str> {
+//     let mut matched = String::new();
+//     let mut chars = input.chars();
 
-    match chars.next() {
-        Some(next) if next.is_alphabetic() => matched.push(next),
-        _ => return Err(input),
-    }
+//     match chars.next() {
+//         Some(next) if next.is_alphabetic() => matched.push(next),
+//         _ => return Err(input),
+//     }
 
-    while let Some(next) = chars.next() {
-        if next.is_alphanumeric() || next == '-' {
-            matched.push(next);
-        } else {
-            break;
-        }
-    }
+//     while let Some(next) = chars.next() {
+//         if next.is_alphanumeric() || next == '-' {
+//             matched.push(next);
+//         } else {
+//             break;
+//         }
+//     }
 
-    let next_index = matched.len();
-    Ok((&input[next_index..], matched))
-}
+//     let next_index = matched.len();
+//     Ok((&input[next_index..], matched))
+// }
 
 /// We're closing in on being able to use that Element struct defined at the
 /// start of the module. We need to be able to combine our parsers together so
@@ -211,19 +211,19 @@ fn identifier(input: &str) -> Result<(&str, String), &str> {
 /// In the event of an error anywhere in the combinator we return immedietly
 /// with that error.
 
-fn pair<P1, P2, R1, R2>(parser1: P1, parser2: P2) -> impl Fn(&str) -> Result<(&str, (R1, R2)), &str>
-where
-    P1: Fn(&str) -> Result<(&str, R1), &str>,
-    P2: Fn(&str) -> Result<(&str, R2), &str>,
-{
-    move |input| match parser1(input) {
-        Ok((next_input, result1)) => match parser2(next_input) {
-            Ok((final_input, result2)) => Ok((final_input, (result1, result2))),
-            Err(err) => Err(err),
-        },
-        Err(err) => Err(err),
-    }
-}
+// fn pair<P1, P2, R1, R2>(parser1: P1, parser2: P2) -> impl Fn(&str) -> Result<(&str, (R1, R2)), &str>
+// where
+//     P1: Fn(&str) -> Result<(&str, R1), &str>,
+//     P2: Fn(&str) -> Result<(&str, R2), &str>,
+// {
+//     move |input| match parser1(input) {
+//         Ok((next_input, result1)) => match parser2(next_input) {
+//             Ok((final_input, result2)) => Ok((final_input, (result1, result2))),
+//             Err(err) => Err(err),
+//         },
+//         Err(err) => Err(err),
+//     }
+// }
 
 /// Now that we can combine two parsers, how do we combine more? If we look
 /// strictly at Type signatures, `pair` cannot be used with itself directly
@@ -247,13 +247,13 @@ where
 
 /// If the parser fails with an error, immedietly raise that up.
 
-fn map<P, F, A, B>(parser: P, map_fn: F) -> impl Fn(&str) -> Result<(&str, B), &str>
-where
-    P: Fn(&str) -> Result<(&str, A), &str>,
-    F: Fn(A) -> B,
-{
-    move |input| parser(input).map(|(next_input, result)| (next_input, map_fn(result)))
-}
+// fn map<P, F, A, B>(parser: P, map_fn: F) -> impl Fn(&str) -> Result<(&str, B), &str>
+// where
+//     P: Fn(&str) -> Result<(&str, A), &str>,
+//     F: Fn(A) -> B,
+// {
+//     move |input| parser(input).map(|(next_input, result)| (next_input, map_fn(result)))
+// }
 
 /// This is a common pattern used all over the standard library, and it turns
 /// out that Result implements this as well and we can use that in our
@@ -262,6 +262,126 @@ where
 /// can be seen implemented in `Result`, above, as well as `Iterator`, `Option`
 /// and `Future`. Other languages, like Haskell, have a direct generalization.
 
+/// Speaking of repeating patterns, this type signature keeps showing up:
+/// `Fn(&Str) -> Result<(&str, Output), &str>`
+/// We've been calling it the 'Parser' type signature. We can save ourselves
+/// some typing and define a shorthand for it.
+
+type ParseResult<'a, Output> = Result<(&'a str, Output), &'a str>;
+
+/// Now we've got a shorthand, `ParseResult<_>`, and we can replace `_` with am
+/// expected type, `String` or whatever. Typically you would avoid using the
+/// lifetime `'a` here unless rustc complained. We need it in this case to use
+/// in the Parser trait, below:
+
+trait Parser<'a, Output> {
+    fn parse(&self, input: &'a str) -> ParseResult<'a, Output>;
+}
+
+/// We can now implement this for any function that matches the signature of a
+/// parser. We can now pass around functions matching the type, and maybe even
+/// other kinds of types eventually.
+
+impl<'a, F, Output> Parser<'a, Output> for F
+where
+    F: Fn(&'a str) -> ParseResult<Output>,
+{
+    fn parse(&self, input: &'a str) -> ParseResult<'a, Output> {
+        self(input)
+    }
+}
+
+/// Let's rewrite `map` using this new trait. For posterity, we'll comment out
+/// the old implementation. We'll use this pattern going forward for all
+/// rewritten functions.
+
+/// This is a bit simpler. We don't rewrite the type signature so many times.
+/// One quirk, though, is that we can longer directly call `parser`. Since
+/// the trait prescribes an interface, we need to adhere to it.
+
+fn map<'a, P, F, A, B>(parser: P, map_fn: F) -> impl Parser<'a, B>
+where
+    P: Parser<'a, A>,
+    F: Fn(A) -> B,
+{
+    move |input| {
+        parser
+            .parse(input)
+            .map(|(next_input, result)| (next_input, map_fn(result)))
+    }
+}
+
+/// Let's rewrite pair the same way.
+
+/// The trait changes are straightforward once we adjust to the new interface.
+/// Refactoring the function body is a little trickier because unlike `map` we
+/// want to transform the contents of the `Result` instead of `Result` itself.
+/// This code eschews all the matching of the earlier implementation, but is
+/// identical in effect.
+
+fn pair<'a, P1, P2, R1, R2>(parser1: P1, parser2: P2) -> impl Parser<'a, (R1, R2)>
+where
+    P1: Parser<'a, R1>,
+    P2: Parser<'a, R2>,
+{
+    move |input| {
+        parser1.parse(input).and_then(|(next_input, result1)| {
+            parser2.parse(next_input)
+                .map(|(last_input, result2)| (last_input, (result1, result2)))
+        })
+    }
+}
+
+/// With our new `map` function and the refactored pair method, we can write
+/// other useful combinators succinctly. The type signature is longer than the
+/// function body.
+
+fn left<'a, P1, P2, R1, R2>(parser1: P1, parser2: P2) -> impl Parser<'a, R1>
+where
+    P1: Parser<'a, R1>,
+    P2: Parser<'a, R2>,
+{
+    map(pair(parser1, parser2), |(left, _)| left)
+}
+
+fn right<'a, P1, P2, R1, R2>(parser1: P1, parser2: P2) -> impl Parser<'a, R2>
+where
+    P1: Parser<'a, R1>,
+    P2: Parser<'a, R2>,
+{
+    map(pair(parser1, parser2), |(_, right)| right)
+}
+
+/// We also need to update `match_literal` and `identifier` to use the new
+/// trait and type, `Parse` and `ParseResult`.
+
+fn match_literal<'a>(expected: &'static str) -> impl Parser<'a, ()> {
+    move |input: &'a str| match input.starts_with(expected) {
+        true => Ok((&input[expected.len()..], ())),
+        _ => Err(input),
+    }
+}
+
+fn identifier(input: &str) -> ParseResult<String> {
+    let mut matched = String::new();
+    let mut chars = input.chars();
+
+    match chars.next() {
+        Some(next) if next.is_alphabetic() => matched.push(next),
+        _ => return Err(input),
+    }
+
+    while let Some(next) = chars.next() {
+        if next.is_alphanumeric() || next == '-' {
+            matched.push(next);
+        } else {
+            break;
+        }
+    }
+
+    let next_index = matched.len();
+    Ok((&input[next_index..], matched))
+}
 
 /// Let's add some unit tests
 
@@ -273,14 +393,14 @@ where
 #[test]
 fn literal_parser() {
     let parse_atcq = match_literal("A Tribe Called Quest");
-    assert_eq!(Ok(("", ())), parse_atcq("A Tribe Called Quest"));
+    assert_eq!(Ok(("", ())), parse_atcq.parse("A Tribe Called Quest"));
     assert_eq!(
         Ok((" has got it from here", ())),
-        parse_atcq("A Tribe Called Quest has got it from here")
+        parse_atcq.parse("A Tribe Called Quest has got it from here")
     );
     assert_eq!(
         Err("You gotta say the whole thing"),
-        parse_atcq("You gotta say the whole thing"),
+        parse_atcq.parse("You gotta say the whole thing"),
     );
 }
 
@@ -315,8 +435,35 @@ fn pair_combinator() {
     let tag_opener = pair(match_literal("<"), identifier);
     assert_eq!(
         Ok(("/>", ((), "bad-bad-not-good".to_string()))),
-        tag_opener("<bad-bad-not-good/>")
+        tag_opener.parse("<bad-bad-not-good/>")
     );
-    assert_eq!(Err("bbng"), tag_opener("bbng"));
-    assert_eq!(Err("!bbng"), tag_opener("<!bbng"));
+    assert_eq!(Err("bbng"), tag_opener.parse("bbng"));
+    assert_eq!(Err("!bbng"), tag_opener.parse("<!bbng"));
+}
+
+/// now add some tests for our new functors, right and left
+/// 1. happy path
+/// 2. error in P1
+/// 3. error in P2
+
+#[test]
+fn right_combinator() {
+    let tag_opener = right(match_literal("<"), identifier);
+    assert_eq!(
+        Ok(("/>", "de-la-soul".to_string())),
+        tag_opener.parse("<de-la-soul/>")
+    );
+    assert_eq!(Err("missing-carrot>"), tag_opener.parse("missing-carrot>"));
+    assert_eq!(Err("!cannot-start-with-symbol>"), tag_opener.parse("<!cannot-start-with-symbol>"));
+}
+
+#[test]
+fn left_combinator() {
+    let tag_opener = left(identifier, match_literal("/>"));
+    assert_eq!(
+        Ok(("", "de-la-soul".to_string())),
+        tag_opener.parse("de-la-soul/>")
+    );
+    assert_eq!(Err(">"), tag_opener.parse("missing-close>"));
+    assert_eq!(Err("!cannot-start-with-symbol>"), tag_opener.parse("!cannot-start-with-symbol>"));
 }
