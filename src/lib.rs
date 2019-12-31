@@ -144,3 +144,27 @@ fn match_literal(expected: &'static str) -> impl Fn(&str) -> Result<(&str, ()), 
         _ => Err(input),
     }
 }
+
+/// Let's add some unit tests
+
+/// Build one parser and then verify three properties
+/// 1. If the string doesn't start with the literal, return an error
+/// 2. If the string starts with the literal, it should strip the match off
+/// 3. If the string starts with the literal, it should return the remainder
+
+#[test]
+fn literal_parser() {
+    let parse_atcq = match_literal("A Tribe Called Quest");
+    assert_eq!(
+        Ok(("", ())),
+        parse_atcq("A Tribe Called Quest")
+    );
+    assert_eq!(
+        Ok((" has got it from here", ())),
+        parse_atcq("A Tribe Called Quest has got it from here")
+    );
+    assert_eq!(
+        Err("You gotta say the whole thing"),
+        parse_atcq("You gotta say the whole thing"),
+    );
+}
