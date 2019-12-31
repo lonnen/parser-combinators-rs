@@ -145,6 +145,53 @@ fn match_literal(expected: &'static str) -> impl Fn(&str) -> Result<(&str, ()), 
     }
 }
 
+/// Now that we can match literals we need to match element names. We don't
+/// know this ahead of time. We could do it with a regex but pulling in a
+/// whole crate seems like overkill.
+
+/// Let's familiarize ourselves with the Identifier definition, again. Start
+/// with an alphabetical character, then zero or more of either an
+/// alphabetical, number, or `-` chars.
+
+/// Start with the type. We don't need a closure because we're writing many
+/// similar functions looking for strings known at compile time. This also
+/// means we can no longer use the generic unit type to indicate a match --
+/// since we don't know exactly what string we're matching ahead of time we
+/// need to return the matched string containing the Identifier.
+
+/// So we have to encode the rules of an Identifier in our algorithm. First up,
+/// check to see if we have a letter. If it's not, fail out with an Error. This
+/// isn't an Identifier. We use the standard library method here. Next, we
+/// start building up our Identifier by pulling characters off the iterator and
+/// pushing them into the Identifier if they match our criteria. When we find
+/// one that doesn't match we're done parsing the identifier and we need to
+/// break out of the loop and return that String we've been building up, along
+/// with the remaining input.
+
+/// Of course, at any time during this we could run out of chars and hit the
+/// end of the input, which is also an Error.
+
+fn identifier(input: &str) -> Result<(&str, String), &str> {
+    let mut matched = String::new();
+    let mut chars = input.chars();
+
+    match chars.next() {
+        Some(next) if next.is_alphabetic() => matched.push(next),
+        _ => return Err(input),
+    }
+
+    while let Some(next) = chars.next() {
+        if next.is_alphanumeric() || next == '-' {
+            matched.push(next);
+        } else {
+            break;
+        }
+    }
+
+    let next_index = matched.len();
+    Ok((&input[next_index..], matched))
+}
+
 /// Let's add some unit tests
 
 /// Build one parser and then verify three properties
@@ -167,4 +214,25 @@ fn literal_parser() {
         Err("You gotta say the whole thing"),
         parse_atcq("You gotta say the whole thing"),
     );
+}
+
+/// now lets check the identifier parser
+/// 1. the identifier is greedy and consumes the input
+/// 2. the identifier should return the remainder of the input
+/// 3. the identifer should throw an error on an invalid identifier
+
+#[test]
+fn identifier_parser() {
+    assert_eq!(
+        Ok(("", "i-am-an-identifier".to_string())),
+        identifier("i-am-an-identifier")
+    );
+    assert_eq!(
+        Ok((" entirely an identifier", "not".to_string())),
+        identifier("not entirely an identifier")
+    );
+    assert_eq!(
+        Err("!not a valid identifier"),
+        identifier("!not a valid identifier")
+    )
 }
