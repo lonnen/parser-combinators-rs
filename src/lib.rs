@@ -191,6 +191,40 @@ fn identifier(input: &str) -> Result<(&str, String), &str> {
     Ok((&input[next_index..], matched))
 }
 
+/// We're closing in on being able to use that Element struct defined at the
+/// start of the module. We need to be able to combine our parsers together so
+/// that we can carry over matches and feed the leftover inputs into the next
+/// one.
+
+/// We're going to do this using a parser combinator, a function that takes two
+/// parsers and combines them into a new one.
+
+/// Like every other new function in this excercise, we start with the types.
+/// We've got two parsers and two results. Each parser takes a&Str input and
+/// returns a `Result` pair of `(result, remaining input)` or an `Error`.
+
+/// The critical difference lies in the result types. P1 returns R1, and P2
+/// returns R2, such that the final parser returns (R1, R2). These are
+/// Evaluated sequentially -- P1 first, then carry over the result and run P2
+/// on any leftover input. Finally, return (R1, R2).
+
+/// In the event of an error anywhere in the combinator we return immedietly
+/// with that error.
+
+fn pair<P1, P2, R1, R2>(parser1: P1, parser2: P2) -> impl Fn(&str) -> Result<(&str, (R1, R2)), &str>
+where
+    P1: Fn(&str) -> Result<(&str, R1), &str>,
+    P2: Fn(&str) -> Result<(&str, R2), &str>,
+{
+    move |input| match parser1(input) {
+        Ok((next_input, result1)) => match parser2(next_input) {
+            Ok((final_input, result2)) => Ok((final_input, (result1, result2))),
+            Err(err) => Err(err),
+        },
+        Err(err) => Err(err),
+    }
+}
+
 /// Let's add some unit tests
 
 /// Build one parser and then verify three properties
@@ -231,4 +265,20 @@ fn identifier_parser() {
         Err("!not a valid identifier"),
         identifier("!not a valid identifier")
     )
+}
+
+/// with our new combinator, we can parse more sophisticated inputs
+/// 1. return an identifier from a well formed tag
+/// 2. error if P1 has an error (cannot match literal)
+/// 3. error if P2 has an error (malformed Identifier)
+
+#[test]
+fn pair_combinator() {
+    let tag_opener = pair(match_literal("<"), identifier);
+    assert_eq!(
+        Ok(("/>", ((), "bad-bad-not-good".to_string()))),
+        tag_opener("<bad-bad-not-good/>")
+    );
+    assert_eq!(Err("bbng"), tag_opener("bbng"));
+    assert_eq!(Err("!bbng"), tag_opener("<!bbng"));
 }
