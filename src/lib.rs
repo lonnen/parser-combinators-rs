@@ -139,8 +139,8 @@ fn the_letter_a(input: &str) -> Result<(&str, ()), &str> {
 /// against a variable now.
 
 fn match_literal(expected: &'static str) -> impl Fn(&str) -> Result<(&str, ()), &str> {
-    move |input| match  input.get(0..expected.len()) {
-        Some(next) if next == expected => Ok((&input[expected.len()..], ())),
+    move |input| match  input.starts_with(expected) {
+        true => Ok((&input[expected.len()..], ())),
         _ => Err(input),
     }
 }
