@@ -326,7 +326,8 @@ where
 {
     move |input| {
         parser1.parse(input).and_then(|(next_input, result1)| {
-            parser2.parse(next_input)
+            parser2
+                .parse(next_input)
                 .map(|(last_input, result2)| (last_input, (result1, result2)))
         })
     }
@@ -381,6 +382,67 @@ fn identifier(input: &str) -> ParseResult<String> {
 
     let next_index = matched.len();
     Ok((&input[next_index..], matched))
+}
+
+/// Whitespace
+/// There are several places where we will have one or more spaces. Tehere are
+/// a few 'one or more' definitions, which smells like an opportunity
+
+/// Abstracting the above 'identifier' method yields a reusable form. Instead
+/// of a single `A` we expext an arbitrary `Vec<A>`. We check for a single
+/// result and then greedily consume as until there are no more and return the
+/// vector of all results.
+
+fn one_or_more<'a, P, A>(parser: P) -> impl Parser<'a, Vec<A>>
+where
+    P: Parser<'a, A>,
+{
+    move |mut input| {
+        let mut result = Vec::new();
+
+        if let Ok((next_input, first_item)) = parser.parse(input) {
+            input = next_input;
+            result.push(first_item);
+        } else {
+            return Err(input);
+        }
+
+        while let Ok((next_input, next_item)) = parser.parse(input) {
+            input = next_input;
+            result.push(next_item);
+        }
+
+        Ok((input, result))
+    }
+}
+
+/// We could also user zero or more. This is very similar to one_or_more with
+/// the initial check removed. There's basically no way for this to return an
+/// error.
+///
+/// We cannot really dry out these functions easily because of the borrow
+/// checker. The problem here is our mutable `input` variable, which is owned
+/// and cannot be passed twice, so we cannot express one of these with the
+/// other. We could write a `RangeBound` combinator that easily lets us
+/// define at least n, exactly n, at most n, etc. relationships. Or we could
+/// work out some Rc workaround to the borrow checker... but parsers really
+/// only need these two functions. We shouldn't need to abstract this further,
+/// and we can come back to this later if we do. Premature optimization.
+
+fn zero_or_more<'a, P, A>(parser: P) -> impl Parser<'a, Vec<A>>
+where
+    P: Parser<'a, A>,
+{
+    move |mut input| {
+        let mut result = Vec::new();
+
+        while let Ok((next_input, next_item)) = parser.parse(input) {
+            input = next_input;
+            result.push(next_item);
+        }
+
+        Ok((input, result))
+    }
 }
 
 /// Let's add some unit tests
@@ -454,7 +516,10 @@ fn right_combinator() {
         tag_opener.parse("<de-la-soul/>")
     );
     assert_eq!(Err("missing-carrot>"), tag_opener.parse("missing-carrot>"));
-    assert_eq!(Err("!cannot-start-with-symbol>"), tag_opener.parse("<!cannot-start-with-symbol>"));
+    assert_eq!(
+        Err("!cannot-start-with-symbol>"),
+        tag_opener.parse("<!cannot-start-with-symbol>")
+    );
 }
 
 #[test]
@@ -465,5 +530,33 @@ fn left_combinator() {
         tag_opener.parse("de-la-soul/>")
     );
     assert_eq!(Err(">"), tag_opener.parse("missing-close>"));
-    assert_eq!(Err("!cannot-start-with-symbol>"), tag_opener.parse("!cannot-start-with-symbol>"));
+    assert_eq!(
+        Err("!cannot-start-with-symbol>"),
+        tag_opener.parse("!cannot-start-with-symbol>")
+    );
+}
+
+/// multiple parser combinator tests
+/// 1. happy path
+/// 2. a bad start should be an error even if the string shows up later
+/// 3. an empty string should be an error since it must match at least 1 time
+
+#[test]
+fn one_or_more_combinator() {
+    let parser = one_or_more(match_literal("ha"));
+    assert_eq!(Ok(("", vec![(), (), ()])), parser.parse("hahaha"));
+    assert_eq!(Err("ahah"), parser.parse("ahah"));
+    assert_eq!(Err(""), parser.parse(""));
+}
+
+/// 1. happy path
+/// 2. a bad start return the whole string without grabbing anything later
+/// 3. an empty string is fine, too
+
+#[test]
+fn zero_or_more_combinator() {
+    let parser = zero_or_more(match_literal("ha"));
+    assert_eq!(Ok(("", vec![(), (), ()])), parser.parse("hahaha"));
+    assert_eq!(Ok(("ahah", vec![])), parser.parse("ahah"));
+    assert_eq!(Ok(("", vec![])), parser.parse(""));
 }
