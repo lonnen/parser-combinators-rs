@@ -225,6 +225,44 @@ where
     }
 }
 
+/// Now that we can combine two parsers, how do we combine more? If we look
+/// strictly at Type signatures, `pair` cannot be used with itself directly
+/// even when we need two combinators but only care to keep one of the results.
+/// Take the examples in our tests -- string literal matching is necessary for
+/// finding the structure in the stream, but once we've parsed it we no longer
+/// need it because that information is represented in our struct (`Element`)
+/// directly. For the most obvious uses of pair, we will only car about one of
+/// the two values but we need a way to tranform the return type, discarding
+/// one side or the other.
+///
+/// Enter the `map` combinator, which takes a parser and a function that can
+/// accepts the parser output and "map"s it to a new type.
+
+/// This is a more complicated type than we've written so far, so break it down
+/// because it explains exactly how this will work. `P` is the parser, `F` is
+/// function that performs the transformation. `A` is the type we expect the
+/// parser to output, and it must also be the type  that `F` accepts as input.
+/// `B` is the output we expect from the function `F`, which of course is also
+/// the final output of `map`
+
+/// If the parser fails with an error, immedietly raise that up.
+
+fn map<P, F, A, B>(parser: P, map_fn: F) -> impl Fn(&str) -> Result<(&str, B), &str>
+where
+    P: Fn(&str) -> Result<(&str, A), &str>,
+    F: Fn(A) -> B,
+{
+    move |input| parser(input).map(|(next_input, result)| (next_input, map_fn(result)))
+}
+
+/// This is a common pattern used all over the standard library, and it turns
+/// out that Result implements this as well and we can use that in our
+/// function. In Category Theory this is called a "functor". It has no general
+/// form in Rust because Rust lacks higher kinded types, but it is useful and
+/// can be seen implemented in `Result`, above, as well as `Iterator`, `Option`
+/// and `Future`. Other languages, like Haskell, have a direct generalization.
+
+
 /// Let's add some unit tests
 
 /// Build one parser and then verify three properties
