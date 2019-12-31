@@ -123,3 +123,24 @@ fn the_letter_a(input: &str) -> Result<(&str, ()), &str> {
         _ => Err(input),
     }
 }
+
+/// We'll need to create functions like the one above to match not just single
+/// chars but arbitrary static strings.
+
+/// This next function doesn't look like the parser above. Instead it takes an
+/// arg and returns something that looks like a parser, in that it accepts
+/// input and then returns the `Result` we expect from a parser. We call this a
+/// 'Higher Order' function, and in some ways it's comparable to a Factory that
+/// you may have seen in a more object oriented language. Instead of objects
+/// we're going to be creating and returning functions that are 'closed over'
+/// some initial state we pass in when we call it to create the new function.
+
+/// the body is similar but where we matched against a literal before we match
+/// against a variable now.
+
+fn match_literal(expected: &'static str) -> impl Fn(&str) -> Result<(&str, ()), &str> {
+    move |input| match  input.get(0..expected.len()) {
+        Some(next) if next == expected => Ok((&input[expected.len()..], ())),
+        _ => Err(input),
+    }
+}
