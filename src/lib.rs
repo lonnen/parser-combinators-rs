@@ -1,9 +1,9 @@
 /// a simple parser combinator excercise
 ///
-/// based on [Bodil Stokke](https://bodil.lol/)'s 
+/// based on [Bodil Stokke](https://bodil.lol/)'s
 /// [blog post](https://bodil.lol/parser-combinators/) on the same topic.
-/// 
-/// We're assuming rustc version 1.34.0 or later using Rust 2018, as laid out 
+///
+/// We're assuming rustc version 1.34.0 or later using Rust 2018, as laid out
 /// in the Cargo.toml
 ///
 /// We're going to write a parser for the Xcruciating Markup Language. It's a
@@ -44,7 +44,7 @@ struct Element {
 }
 
 /// Parsers transform a stream of data by giving it structure.
-/// 
+///
 /// Any given parser is going to be limited in it's capability. It may only
 /// parse some of the input, and return unparsed input alongside parsed output.
 /// If it can't parse any of it, we want to return an error.
@@ -71,7 +71,6 @@ struct Element {
 /// complicated, though, and we're going to leverage the standard lib to manage
 /// it for us. Dealing with Unicode here would be something of a distraction
 /// for this excercise but important to any industrial parser.
-
 
 /// Let's begin with a parser examines the first character in the string and
 /// extracts it, iff it is `a`
@@ -139,7 +138,7 @@ fn the_letter_a(input: &str) -> Result<(&str, ()), &str> {
 /// against a variable now.
 
 fn match_literal(expected: &'static str) -> impl Fn(&str) -> Result<(&str, ()), &str> {
-    move |input| match  input.starts_with(expected) {
+    move |input| match input.starts_with(expected) {
         true => Ok((&input[expected.len()..], ())),
         _ => Err(input),
     }
@@ -202,10 +201,7 @@ fn identifier(input: &str) -> Result<(&str, String), &str> {
 #[test]
 fn literal_parser() {
     let parse_atcq = match_literal("A Tribe Called Quest");
-    assert_eq!(
-        Ok(("", ())),
-        parse_atcq("A Tribe Called Quest")
-    );
+    assert_eq!(Ok(("", ())), parse_atcq("A Tribe Called Quest"));
     assert_eq!(
         Ok((" has got it from here", ())),
         parse_atcq("A Tribe Called Quest has got it from here")
