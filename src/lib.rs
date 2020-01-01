@@ -445,7 +445,93 @@ where
     }
 }
 
+/// So now let's look at how to parse out attributes.
+/// If there are no attributes there may be valid streams without whitespace.
+/// If there are any attributes, there must be whitespace, and if there are
+/// multiple attributes there must be whitespace between attributes. We can
+/// express this using our new combinators precisely -- we are looking for
+/// zero or more occurences of one or more whitespace items followed by an
+/// attribute.
+
+/// We'll start with a whitespace parser.
+/// Whitespace is more than just an empty space character. It also includes
+/// line breaks, tabs, and a wide variety of Unicode points that render empty.
+/// The standard library is here to help, though, as `char` has several methods
+/// that will be useful: `is_whitespace`, `is_alphabetic`, `is_alphanumeric`.
+
+/// We could use this to write something like `identifier`, but even saying
+/// that is a sign we could probably abstract out a predicate combinator and
+/// express both ideas using it. Start with a character parser:
+
+fn any_char(input: &str) -> ParseResult<char> {
+    match input.chars().next() {
+        Some(next) => Ok((&input[next.len_utf8()..], next)),
+        _ => Err(input),
+    }
+}
+
+/// Now a `pred`icate combinator. This should look really familiar at this point.
+
+fn pred<'a, P, A, F>(parser: P, predicate: F) -> impl Parser<'a, A>
+where
+    P: Parser<'a, A>,
+    F: Fn(&A) -> bool,
+{
+    move |input| {
+        if let Ok((next_input, value)) = parser.parse(input) {
+            if predicate(&value) {
+                return Ok((next_input, value));
+            }
+        }
+        Err(input)
+    }
+}
+
+/// A whitespace parser should be a quick one-liner now:
+
+fn whitespace_char<'a>() -> impl Parser<'a, char> {
+    pred(any_char, |c| c.is_whitespace())
+}
+
+/// These parsers only capture a single character, now, so let's build out the
+/// additional combinators that we need.
+
+fn space1<'a>() -> impl Parser<'a, Vec<char>> {
+    one_or_more(whitespace_char())
+}
+
+fn space0<'a>() -> impl Parser<'a, Vec<char>> {
+    zero_or_more(whitespace_char())
+}
+
+/// let's try to build an attribute parser from these tools, now. Unfortunately
+/// a bottom up mess of combinators like this can be tricky to build and read.
+/// The outermost `map` is the last step. We match an opening quote, but its
+/// structural and so only care about the bit that follows the quote. That is
+/// returned from the `left` combinator, because after the initial match we
+/// need to parse the string contents until we come up against the structural
+/// closing quote. We don't need to capture it, so we only care about the
+/// `left` side of that. This isn't enough, though, because our `*_or_more`
+/// parsers return vectors of matches. `map` is used to transform these into
+/// the string we expect.
+
+fn quoted_string<'a>() -> impl Parser<'a, String> {
+    map(
+        right(
+            match_literal("\""), // escaped single "
+            left(
+                zero_or_more(pred(any_char, |c| *c != '"')),
+                match_literal("\""),
+            ),
+        ),
+        |char| char.into_iter().collect(),
+    )
+}
+
+
 /// Let's add some unit tests
+/// For whatever reason I decided that tests exist outside of the continuity
+/// the doc and I've lumped them all at the bottom here, in order.
 
 /// Build one parser and then verify three properties
 /// 1. If the string doesn't start with the literal, return an error
@@ -559,4 +645,27 @@ fn zero_or_more_combinator() {
     assert_eq!(Ok(("", vec![(), (), ()])), parser.parse("hahaha"));
     assert_eq!(Ok(("ahah", vec![])), parser.parse("ahah"));
     assert_eq!(Ok(("", vec![])), parser.parse(""));
+}
+
+/// create a parser that looks for a single char predicate
+/// 1. happy path
+/// 2. obvious error
+/// 3. the predicate parser captures only a single char
+
+#[test]
+fn predicate_combinator() {
+    let parser = pred(any_char, |c| *c == 'o');
+    assert_eq!(Ok(("mg", 'o')), parser.parse("omg"));
+    assert_eq!(Err("lol"), parser.parse("lol"));
+    assert_eq!(Ok(("okta", 'o')), parser.parse("ookta"));
+}
+
+/// quoted
+
+#[test]
+fn quoted_string_parser() {
+    assert_eq!(
+        Ok(("", "Hello Joe!".to_string())),
+        quoted_string().parse("\"Hello Joe!\"")
+    );
 }
