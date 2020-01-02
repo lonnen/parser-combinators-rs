@@ -275,9 +275,9 @@ type ParseResult<'a, Output> = Result<(&'a str, Output), &'a str>;
 /// lifetime `'a` here unless rustc complained. We need it in this case to use
 /// in the Parser trait, below:
 
-trait Parser<'a, Output> {
-    fn parse(&self, input: &'a str) -> ParseResult<'a, Output>;
-}
+// trait Parser<'a, Output> {
+//     fn parse(&self, input: &'a str) -> ParseResult<'a, Output>;
+// }
 
 /// We can now implement this for any function that matches the signature of a
 /// parser. We can now pass around functions matching the type, and maybe even
@@ -516,18 +516,18 @@ fn space0<'a>() -> impl Parser<'a, Vec<char>> {
 /// parsers return vectors of matches. `map` is used to transform these into
 /// the string we expect.
 
-fn quoted_string<'a>() -> impl Parser<'a, String> {
-    map(
-        right(
-            match_literal("\""), // escaped single "
-            left(
-                zero_or_more(pred(any_char, |c| *c != '"')),
-                match_literal("\""),
-            ),
-        ),
-        |char| char.into_iter().collect(),
-    )
-}
+// fn quoted_string<'a>() -> impl Parser<'a, String> {
+//     map(
+//         right(
+//             match_literal("\""), // escaped single "
+//             left(
+//                 zero_or_more(pred(any_char, |c| *c != '"')),
+//                 match_literal("\""),
+//             ),
+//         ),
+//         |char| char.into_iter().collect(),
+//     )
+// }
 
 /// now we parse attribute pairs
 /// the structure of this code is almost declarative in how it reads
@@ -576,14 +576,14 @@ fn attributes<'a>() -> impl Parser<'a, Vec<(String, String)>> {
 /// Boxes are a rust feature to hold a reference to an abstract type. This has
 /// a few costs -- extra complexity in the code, maybe missing out on compiler
 /// optimizations, maybe running a few seconds slower at runtime when the
-/// program chases down the pointer. If we adopt it, it reduces a potentially 
+/// program chases down the pointer. If we adopt it, it reduces a potentially
 /// infinite or recursive allocation to a pointer of known size. This means
 /// we go from an owned thing on the stack to an owned thing on the heap where
 /// we have much more latitutde.
 
 /// In order to take advantage of this, we'll need to write boxed versions of
 /// the most common parsers. We could redo all of them, really, if we want to
-/// eat the performance overhead. 
+/// eat the performance overhead.
 
 /// We can write it so that it wraps around existing parsers by putting them
 /// on the heap and then dereferencing a pointer to get them out.
@@ -607,6 +607,91 @@ impl<'a, Output> Parser<'a, Output> for BoxedParser<'a, Output> {
     fn parse(&self, input: &'a str) -> ParseResult<'a, Output> {
         self.parser.parse(input)
     }
+}
+
+/// this box model is an opportunity to reduce some of the nesting in the last
+/// few parsers we wrote. Instead of a loose pile of unrelated functions, it
+/// would be nice to have these as methods of a Parser that could hold the
+/// state internally. You could 'chain' it all together, like jquery
+
+/// we need to use `BoxedParser` because we can't declare a trait that itself
+/// implements a trait, but boxed parser is a struct containing a pointer to
+/// something implementing the trait. This idirection is enough to give the
+/// compiler a fixed allocation at compile.
+
+/// We comment out the trait impl above and move a copy of it here so we can
+/// extend it with a new map method. All of the explicit lifetimes are necessary
+/// which clutters it up a bit. Our combinators can be reused unchanged at this
+/// point without exploding the type system, though. So that's nice.
+
+// trait Parser<'a, Output> {
+//     fn parse(&self, input: &'a str) -> ParseResult<'a, Output>;
+
+//     fn map<F, NewOutput>(self, map_fn: F) -> BoxedParser<'a, NewOutput>
+//     where
+//         Self: Sized + 'a,
+//         Output: 'a,
+//         NewOutput: 'a,
+//         F: Fn(Output) -> NewOutput + 'a,
+//     {
+//         BoxedParser::new(map(self, map_fn))
+//     }
+// }
+
+/// Let's start with `quoted_string` from above. The change is small but direct.
+/// We get to call `map` as a method of the result of `right()` and lose one
+/// level of indentation.
+
+// fn quoted_string<'a>() -> impl Parser<'a, String> {
+//     right(
+//         match_literal("\""), // escaped single "
+//         left(
+//             zero_or_more(pred(any_char, |c| *c != '"')),
+//             match_literal("\""),
+//         ),
+//     )
+//     .map(|char| char.into_iter().collect())
+// }
+
+/// We can even give `pred` the same treatment as `map`
+
+trait Parser<'a, Output> {
+    fn parse(&self, input: &'a str) -> ParseResult<'a, Output>;
+
+    fn map<F, NewOutput>(self, map_fn: F) -> BoxedParser<'a, NewOutput>
+    where
+        Self: Sized + 'a,
+        Output: 'a,
+        NewOutput: 'a,
+        F: Fn(Output) -> NewOutput + 'a,
+    {
+        BoxedParser::new(map(self, map_fn))
+    }
+
+    fn pred<F>(self, pred_fn: F) -> BoxedParser<'a, Output>
+    where
+        Self: Sized + 'a,
+        Output: 'a,
+        F: Fn(&Output) -> bool + 'a,
+    {
+        BoxedParser::new(pred(self, pred_fn))
+    }
+}
+
+/// then we can rewrite quotes_string again with a change to the `any_char` line
+/// so it looks more like `zero_or_more` of `any char` with the following pred
+/// applied. I personally think it confuses the line a bit, but Bodil did it
+/// at this point so we'll go with it and see if it leads somewhere.
+
+fn quoted_string<'a>() -> impl Parser<'a, String> {
+    right(
+        match_literal("\""), // escaped single "
+        left(
+            zero_or_more(any_char.pred(|c| *c != '"')),
+            match_literal("\""),
+        ),
+    )
+    .map(|char| char.into_iter().collect())
 }
 
 /// Let's add some unit tests
