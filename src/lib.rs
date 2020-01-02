@@ -694,9 +694,12 @@ fn quoted_string<'a>() -> impl Parser<'a, String> {
     .map(|char| char.into_iter().collect())
 }
 
-/// Let's add some unit tests
+
+
 /// For whatever reason I decided that tests exist outside of the continuity
 /// the doc and I've lumped them all at the bottom here, in order.
+
+/// Let's add some unit tests
 
 /// Build one parser and then verify three properties
 /// 1. If the string doesn't start with the literal, return an error
