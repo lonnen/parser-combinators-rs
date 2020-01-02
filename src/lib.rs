@@ -1,3 +1,4 @@
+#![type_length_limit = "16777216"] // see fire occurance of `fn attributes<'a>()`
 /// a simple parser combinator excercise
 ///
 /// based on [Bodil Stokke](https://bodil.lol/)'s
@@ -528,6 +529,23 @@ fn quoted_string<'a>() -> impl Parser<'a, String> {
     )
 }
 
+/// now we parse attribute pairs
+/// the structure of this code is almost declarative in how it reads
+
+fn attribute_pair<'a>() -> impl Parser<'a, (String, String)> {
+    pair(identifier, right(match_literal("="), quoted_string()))
+}
+
+/// again, almost declarative now
+fn attributes<'a>() -> impl Parser<'a, Vec<(String, String)>> {
+    zero_or_more(right(space1(), attribute_pair()))
+}
+
+/// #![type_length_limit = "16777216"]
+/// the compiler is nearing a limit on the number of types. rustc gives pretty
+/// good advice. We go one step further here and increase the limit 2^24 as
+/// suggested by Bodil. It seems as good as any other. I can't find an upper
+/// limit in the rustc docs.
 
 /// Let's add some unit tests
 /// For whatever reason I decided that tests exist outside of the continuity
@@ -667,5 +685,21 @@ fn quoted_string_parser() {
     assert_eq!(
         Ok(("", "Hello Joe!".to_string())),
         quoted_string().parse("\"Hello Joe!\"")
+    );
+}
+
+/// attributes
+
+#[test]
+fn attribute_parser() {
+    assert_eq!(
+        Ok((
+            "",
+            vec![
+                ("one".to_string(), "1".to_string()),
+                ("two".to_string(), "2".to_string())
+            ]
+        )),
+        attributes().parse(" one=\"1\" two=\"2\"")
     );
 }
