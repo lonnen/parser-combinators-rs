@@ -547,6 +547,68 @@ fn attributes<'a>() -> impl Parser<'a, Vec<(String, String)>> {
 /// suggested by Bodil. It seems as good as any other. I can't find an upper
 /// limit in the rustc docs.
 
+/// with that limit raised, let's move on ot the element tag
+/// we have to consider both single element, and parent with child elements
+/// but before we get there we need to start at the bottom with the common
+/// aspects of all elements
+
+// fn element_start<'a>() -> impl Parser<'a, (String, Vec<(String, String)>)> {
+//     right(match_literal("<"), pair(identifier, attributes()))
+// }
+
+// fn single_element<'a>() -> impl Parser<'a, Element> {
+//     map(
+//         left(element_start(), match_literal("/>")),
+//         |(name, attributes)| Element {
+//             name,
+//             attributes,
+//             children: vec![],
+//         },
+//     )
+// }
+
+/// Unfortunately, this code causes the compiler to seize up for a few minutes
+/// before telling us, again, we're out of space for the type system. What?
+/// We haven't added much since the last one. The problem comes from rustc not
+/// knowing how to stack allocate everything right now. We can still get where
+/// we want to go, but it's going to cost us.
+
+/// Boxes are a rust feature to hold a reference to an abstract type. This has
+/// a few costs -- extra complexity in the code, maybe missing out on compiler
+/// optimizations, maybe running a few seconds slower at runtime when the
+/// program chases down the pointer. If we adopt it, it reduces a potentially 
+/// infinite or recursive allocation to a pointer of known size. This means
+/// we go from an owned thing on the stack to an owned thing on the heap where
+/// we have much more latitutde.
+
+/// In order to take advantage of this, we'll need to write boxed versions of
+/// the most common parsers. We could redo all of them, really, if we want to
+/// eat the performance overhead. 
+
+/// We can write it so that it wraps around existing parsers by putting them
+/// on the heap and then dereferencing a pointer to get them out.
+
+struct BoxedParser<'a, Output> {
+    parser: Box<dyn Parser<'a, Output> + 'a>,
+}
+
+impl<'a, Output> BoxedParser<'a, Output> {
+    fn new<P>(parser: P) -> Self
+    where
+        P: Parser<'a, Output> + 'a,
+    {
+        BoxedParser {
+            parser: Box::new(parser),
+        }
+    }
+}
+
+impl<'a, Output> Parser<'a, Output> for BoxedParser<'a, Output> {
+    fn parse(&self, input: &'a str) -> ParseResult<'a, Output> {
+        self.parser.parse(input)
+    }
+}
+
 /// Let's add some unit tests
 /// For whatever reason I decided that tests exist outside of the continuity
 /// the doc and I've lumped them all at the bottom here, in order.
@@ -703,3 +765,22 @@ fn attribute_parser() {
         attributes().parse(" one=\"1\" two=\"2\"")
     );
 }
+
+// this single element test will bomb out the compiler unless we refactor
+// some things. need to comment it out. it represents a dead end that we're
+// leaving only for historical record of how we proceeded with this doc
+
+// #[test]
+// fn single_element_parser() {
+//     assert_eq!(
+//         Ok((
+//             "",
+//             Element {
+//                 name: "div".to_string(),
+//                 attributes: vec![("class".to_string(), "float".to_string())],
+//                 children: vec![]
+//             }
+//         )),
+//         single_element().parse("<div class=\"float\"/>")
+//     );
+// }
