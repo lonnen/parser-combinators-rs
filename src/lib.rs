@@ -655,6 +655,149 @@ impl<'a, Output> Parser<'a, Output> for BoxedParser<'a, Output> {
 
 /// We can even give `pred` the same treatment as `map`
 
+// trait Parser<'a, Output> {
+//     fn parse(&self, input: &'a str) -> ParseResult<'a, Output>;
+
+//     fn map<F, NewOutput>(self, map_fn: F) -> BoxedParser<'a, NewOutput>
+//     where
+//         Self: Sized + 'a,
+//         Output: 'a,
+//         NewOutput: 'a,
+//         F: Fn(Output) -> NewOutput + 'a,
+//     {
+//         BoxedParser::new(map(self, map_fn))
+//     }
+
+//     fn pred<F>(self, pred_fn: F) -> BoxedParser<'a, Output>
+//     where
+//         Self: Sized + 'a,
+//         Output: 'a,
+//         F: Fn(&Output) -> bool + 'a,
+//     {
+//         BoxedParser::new(pred(self, pred_fn))
+//     }
+// }
+
+/// then we can rewrite quotes_string again with a change to the `any_char` line
+/// so it looks more like `zero_or_more` of `any char` with the following pred
+/// applied. I personally think it confuses the line a bit, but Bodil did it
+/// at this point so we'll go with it and see if it leads somewhere.
+
+fn quoted_string<'a>() -> impl Parser<'a, String> {
+    right(
+        match_literal("\""), // escaped single "
+        left(
+            zero_or_more(any_char.pred(|c| *c != '"')),
+            match_literal("\""),
+        ),
+    )
+    .map(|char| char.into_iter().collect())
+}
+
+/// next we'll look at a parser for opening tags, which is similar to the self
+/// closing tage we already wrote. First, since we've added BoxedParsers we can
+/// reintroduce those:
+
+fn element_start<'a>() -> impl Parser<'a, (String, Vec<(String, String)>)> {
+    right(match_literal("<"), pair(identifier, attributes()))
+}
+
+fn single_element<'a>() -> impl Parser<'a, Element> {
+    map(
+        left(element_start(), match_literal("/>")),
+        |(name, attributes)| Element {
+            name,
+            attributes,
+            children: vec![],
+        },
+    )
+}
+
+/// no more compile time errors or lockups! Now for the open element parser:
+
+fn open_element<'a>() -> impl Parser<'a, Element> {
+    left(element_start(), match_literal(">")).map(|(name, attributes)| Element {
+        name,
+        attributes,
+        children: vec![],
+    })
+}
+
+/// if we do have an open element, we need to parse out the child elements as
+/// well. Ther'yre going to be single elements or maybe other parents with their
+/// own child elements. This is a new case we have yet to deal with -- `either`
+
+/// We need to try two parsers in order. We'll define it to be greedy and if the
+/// first one succeeds we'll just return that and be done. If it fails, we can
+/// try the next one on the same input and return the success or error of that.
+
+/// This example uses the @ sign, which is terrifically difficult to look up in
+/// a search engine. It binds a value to a name. You see it in Macros a lot.
+/// Read more herE: https://doc.rust-lang.org/1.8.0/book/patterns.html#bindings
+
+fn either<'a, P1, P2, A>(parser1: P1, parser2: P2) -> impl Parser<'a, A>
+where
+    P1: Parser<'a, A>,
+    P2: Parser<'a, A>,
+{
+    move |input| match parser1.parse(input) {
+        ok @ Ok(_) => ok,
+        Err(_) => parser2.parse(input),
+    }
+}
+
+/// with this new tool we can develop our `element` parser
+
+fn element<'a>() -> impl Parser<'a, Element> {
+    either(single_element(), open_element())
+}
+
+/// and the closing tag
+
+fn close_element<'a>(expected_name: String) -> impl Parser<'a, String> {
+    right(match_literal("</"), left(identifier, match_literal(">")))
+        .pred(move |name| name == &expected_name)
+}
+
+/// we need one more combinator in order to pass  the necessary argument to
+/// `close_element()` below:
+
+// fn parent_element<'a>() -> impl Parser<'a, Element> {
+//     pair(
+//         open_element(),
+//         left(zero_or_more(element(), close_element(...oops))),
+//     )
+// }
+
+/// We need something like `and_then` and something like `pair`. Instead of
+/// collecting two results, we thread the result of one into the other. This is
+/// how `and_then` works on `Results` and `Options`, but we need to write our
+/// own implementation.
+
+/// There's so many types. Our parser P has a result type A. Our function F is
+/// not `map` this time, accepting A and then passing it to a new parser `NextP`
+/// that has a result type of B. The final result is also B, basically passed
+/// right out from `NextP`
+
+/// luckily the code is less complicated. We try out input parser, and then if
+/// it succeeds we call F on the result to build a new parser, and run this on
+/// the next bit  of input. If this succeeds we return the result directly. If
+/// any step fails, pass the error along as soon as possible.
+
+fn and_then<'a, P, F, A, B, NextP>(parser: P, f: F) -> impl Parser<'a, B>
+where
+    P: Parser<'a, A>,
+    NextP: Parser<'a, B>,
+    F: Fn(A) -> NextP,
+{
+    move |input| match parser.parse(input) {
+        Ok((next_input, result)) => f(result).parse(next_input),
+        Err(err) => Err(err),
+    }
+}
+
+/// Now that we have this function, we need to box it up as parser trait.
+
 trait Parser<'a, Output> {
     fn parse(&self, input: &'a str) -> ParseResult<'a, Output>;
 
@@ -676,25 +819,55 @@ trait Parser<'a, Output> {
     {
         BoxedParser::new(pred(self, pred_fn))
     }
+
+    fn and_then<F, NextParser, NewOutput>(self, f: F) -> BoxedParser<'a, NewOutput>
+    where
+        Self: Sized + 'a,
+        Output: 'a,
+        NewOutput: 'a,
+        NextParser: Parser<'a, NewOutput> + 'a,
+        F: Fn(Output) -> NextParser + 'a,
+    {
+        BoxedParser::new(and_then(self, f))
+    }
 }
 
-/// then we can rewrite quotes_string again with a change to the `any_char` line
-/// so it looks more like `zero_or_more` of `any char` with the following pred
-/// applied. I personally think it confuses the line a bit, but Bodil did it
-/// at this point so we'll go with it and see if it leads somewhere.
+/// Great. Now what can we do  with it?
+/// Well, we can't quite implement Pair with it. `parser2.map()` consumes
+/// `parser2` to create the wrapped parser. More background is available in the
+/// closures chapter of the rust-lang book:
+/// https://doc.rust-lang.org/nightly/book/ch13-01-closures.html
 
-fn quoted_string<'a>() -> impl Parser<'a, String> {
-    right(
-        match_literal("\""), // escaped single "
-        left(
-            zero_or_more(any_char.pred(|c| *c != '"')),
-            match_literal("\""),
-        ),
-    )
-    .map(|char| char.into_iter().collect())
+/// You might try something like this:
+
+// fn pair<'a, P1, P2, R1, R2>(parser1: P1, parser2: P2) -> impl Parser<'a, (R1, R2)>
+// where
+//     P1: Parser<'a, R1> + 'a,
+//     P2: Parser<'a, R2> + 'a,
+//     R1: 'a + Clone,
+//     R2: 'a,
+// {
+//     parser1.and_then(move |result1| parser2.map(move |result2| (result1.clone(), result2)))
+// }
+
+/// Although it would work in another language, rust gets grumpy over ownership.
+
+/// So how do we actually use this and_then value at all? Well, if we construct
+/// the parser inside of the closure we can get the effect we're looking for
+/// above.
+
+/// The inner closure works around the ownership problems above through the
+/// liberal use of `clone` to convert references into owned values.
+
+fn parent_element<'a>() -> impl Parser<'a, Element> {
+    open_element().and_then(|el| {
+        left(zero_or_more(element()), close_element(el.name.clone())).map(move |children| {
+            let mut el = el.clone();
+            el.children = children;
+            el
+        })
+    })
 }
-
-
 
 /// For whatever reason I decided that tests exist outside of the continuity
 /// the doc and I've lumped them all at the bottom here, in order.
