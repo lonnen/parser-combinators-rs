@@ -1,4 +1,3 @@
-#![type_length_limit = "16777216"] // see fire occurance of `fn attributes<'a>()`
 /// a simple parser combinator excercise
 ///
 /// based on [Bodil Stokke](https://bodil.lol/)'s
@@ -702,16 +701,16 @@ fn element_start<'a>() -> impl Parser<'a, (String, Vec<(String, String)>)> {
     right(match_literal("<"), pair(identifier, attributes()))
 }
 
-fn single_element<'a>() -> impl Parser<'a, Element> {
-    map(
-        left(element_start(), match_literal("/>")),
-        |(name, attributes)| Element {
-            name,
-            attributes,
-            children: vec![],
-        },
-    )
-}
+// fn single_element<'a>() -> impl Parser<'a, Element> {
+//     map(
+//         left(element_start(), match_literal("/>")),
+//         |(name, attributes)| Element {
+//             name,
+//             attributes,
+//             children: vec![],
+//         },
+//     )
+// }
 
 /// no more compile time errors or lockups! Now for the open element parser:
 
@@ -748,9 +747,9 @@ where
 
 /// with this new tool we can develop our `element` parser
 
-fn element<'a>() -> impl Parser<'a, Element> {
-    either(single_element(), open_element())
-}
+// fn element<'a>() -> impl Parser<'a, Element> {
+//     either(single_element(), open_element())
+// }
 
 /// and the closing tag
 
@@ -891,8 +890,68 @@ fn parent_element<'a>() -> impl Parser<'a, Element> {
 /// type system that can express this concisely so it exists as a pattern rather
 /// than a language construct
 
-/// For whatever reason I decided that tests exist outside of the continuity
-/// the doc and I've lumped them all at the bottom here, in order.
+/// One more step.
+
+/// We can parse our knockoff XML now, but it won't deal well with whitespace,
+/// especially between tags. Let's fix that.
+
+fn whitespace_wrap<'a, P, A>(parser: P) -> impl Parser<'a, A>
+where
+    P: Parser<'a, A>,
+{
+    right(space0(), left(parser, space0()))
+}
+
+/// Now we can use this to ignore leading or trailing whitespace around an
+/// `element` tag, and we're free to use as many line breaks and as much
+/// indentation as we like.
+fn element<'a>() -> impl Parser<'a, Element> {
+    whitespace_wrap(either(single_element(), parent_element()))
+}
+
+/// WHEW. That should be everything, since we're at the end of Bodil's tutorial.
+/// Unfortunately, when we write the full integration test the type length error
+/// is reoccuring. I can bump the limit, as suggested, but compile times seem to
+/// be growing exponentially. It seems to be occuring in `pair`, or  `left`
+/// depending on the limit.
+
+/// I must have missed something. Maybe it's in the new `whitespace_wrap` or
+/// `element` code we just introduced. `single element` was the culprit the
+/// first time we had a type name explosion. Looking back at where it is defined
+/// I somehow redefined it exactly as it was earlier in the doc. I did not
+/// refactor it to use the new boxed `map` method. Let's try it now:
+
+fn single_element<'a>() -> impl Parser<'a, Element> {
+    left(element_start(), match_literal("/>")).map(|(name, attributes)| Element {
+        name,
+        attributes,
+        children: vec![],
+    })
+}
+
+/// And that works! Compile time is low and, as mentioned in the section "An
+/// Opportunity Presents Itself" in Bodil's post, we can even remove the top
+/// line directive from the file header. Great!
+
+/// The error message here was super unhelpful. There's no stack because it's a
+/// compile time problem and there are no symbols yet at this phase of
+/// compilation. There are plenty of rustc issues about it, but your options are
+/// effectively "well, don't do that then" or "use more `Box`es". There isn't a
+/// ton of guidance for a new-to-rust programmer on using `Box`es or profiling
+/// for this kind of problem. This is something to investigate further.
+
+/// Below are some unit and integration tests if you want to see the code in
+/// action. They provide some evidence that things are behaving the way we
+/// expect at runtime. Until we solve the hatling problem, this will have do.
+
+/// If you want to know more about parsers and monads, please check out
+/// the reference section at the top of the module for links both academic
+/// and industrial.
+
+
+/// AUTHORS NOTE: For whatever reason I decided that tests exist outside of the
+/// continuity of the doc and I've lumped them all at the bottom here, in order
+/// that they were defined. It roughly matches up with when they were defined.
 
 /// Let's add some unit tests
 
@@ -1067,3 +1126,46 @@ fn attribute_parser() {
 //         single_element().parse("<div class=\"float\"/>")
 //     );
 // }
+
+// A final integration test to
+
+#[test]
+fn mismatched_closing_tag() {
+    let doc = r#"
+        <top>
+            <bottom/>
+        </middle>"#;
+    assert_eq!(Err("</middle>"), element().parse(doc));
+}
+
+#[test]
+fn xml_parser() {
+    let doc = r#"
+        <top label="Top">
+            <semi-bottom label="Bottom"/>
+            <middle>
+                <bottom label="Another bottom"/>
+            </middle>
+        </top>  "#;
+    let expected_doc = Element {
+        name: "top".to_string(),
+        attributes: vec![("label".to_string(), "Top".to_string())],
+        children: vec![
+            Element {
+                name: "semi-bottom".to_string(),
+                attributes: vec![("label".to_string(), "Bottom".to_string())],
+                children: vec![],
+            },
+            Element {
+                name: "middle".to_string(),
+                attributes: vec![],
+                children: vec![Element {
+                    name: "bottom".to_string(),
+                    attributes: vec![("label".to_string(), "Another bottom".to_string())],
+                    children: vec![]
+                }],
+            },
+        ],
+    };
+    assert_eq!(Ok(("", expected_doc)), element().parse(doc));
+}
