@@ -869,6 +869,28 @@ fn parent_element<'a>() -> impl Parser<'a, Element> {
     })
 }
 
+/// Like functors, `and_then` is a pattern you'll see a lot. It shows up
+/// coincident with `map` and `flat_map`. The general pattern is called `monad`
+/// in Category theory and other languages.
+
+/// If you've got Thing<A>, `and_then` gives you a way to mutate A with a
+/// function and get back Thing<B>. The wrapper Thing<_> stays the same but the
+/// internal state changes. The function may be called immediately, as in the
+/// case of `Option<A>`. It's known at creation if it's `Some(A)` or `None` so
+/// the function can immediately apply to yield `Some(B)`.
+
+/// Sometimes this is used to encapsulate things that have not yet happened, as
+/// in the case of `Future<A>`. In this case, `and_then` wraps up both the func
+/// and `Future<A> into a new `Future<B>`, and the function passed in will
+/// be executed when `Future<A>` resolves. It's similar to a callback, but it
+/// wraps both the finished and pending forms together in the `Future` interface
+/// so they can express concise chains of steps without stopping to check on
+/// the status repeatedly.
+
+/// Much like the aformentioned functors, though, we don't have a higher order
+/// type system that can express this concisely so it exists as a pattern rather
+/// than a language construct
+
 /// For whatever reason I decided that tests exist outside of the continuity
 /// the doc and I've lumped them all at the bottom here, in order.
 
